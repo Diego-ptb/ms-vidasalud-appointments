@@ -1,0 +1,18 @@
+target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.log
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+application-local.yml
+
+# Credenciales: nunca al repositorio
+.env
+.env.local
+.env.*.local
+*.pem
+*.key

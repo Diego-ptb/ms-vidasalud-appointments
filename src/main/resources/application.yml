@@ -1,0 +1,68 @@
+server:
+  port: 8081
+  error:
+    # Para que el motivo de un 409 (ej. transicion de estado no permitida)
+    # llegue al cliente y pueda mostrarse al usuario.
+    include-message: always
+
+spring:
+  application:
+    name: ms-vidasalud-appointments
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  jpa:
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+vidasalud:
+  internal-key: ${INTERNAL_KEY:vidasalud-internal}
+  internal-key-enabled: ${INTERNAL_KEY_ENABLED:true}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+---
+# Perfil dev: base en memoria, para desarrollar sin Supabase disponible.
+spring:
+  config:
+    activate:
+      on-profile: dev
+  datasource:
+    url: jdbc:h2:mem:vidasalud;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: update
+    database-platform: org.hibernate.dialect.H2Dialect
+
+---
+# Perfil supabase: base de datos propia de este microservicio (atenciones).
+#
+# Cada servicio de dominio tiene SU proyecto Supabase: nadie lee las tablas
+# del otro, que es el patron database-per-service del caso.
+#
+# La cadena sale de Supabase -> Project Settings -> Database -> Connection string
+# -> pestana JDBC. Usa el "Session pooler" (puerto 5432 del host .pooler.supabase.com):
+# es IPv4 y admite prepared statements, que es lo que necesita Hibernate.
+spring:
+  config:
+    activate:
+      on-profile: supabase
+  datasource:
+    url: ${DB_APPOINTMENTS_URL:jdbc:postgresql://localhost:5432/postgres}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_APPOINTMENTS_USER:postgres}
+    password: ${DB_APPOINTMENTS_PASSWORD:changeme}
+    hikari:
+      maximum-pool-size: 5
+      connection-timeout: 30000
+  jpa:
+    hibernate:
+      ddl-auto: update
