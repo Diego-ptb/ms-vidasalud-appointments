@@ -16,3 +16,6 @@ application-local.yml
 .env.*.local
 *.pem
 *.key
+
+# Scripts locales de arranque (dependen de rutas de la maquina)
+run-local.ps1
