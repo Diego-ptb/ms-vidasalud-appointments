@@ -1,0 +1,12 @@
+# Todo lo que no necesita el build. Sin esto, el contexto incluiria el jar
+# compilado (50+ MB) y lo enviaria al daemon en cada construccion.
+target/
+.git/
+.gitignore
+*.md
+*.ps1
+.idea/
+.vscode/
+*.iml
+.env
+.env.*
