@@ -16,9 +16,11 @@ import cl.duoc.vidasalud.appointments.web.AppointmentDtos.CreateRequest;
 public class AppointmentService {
 
     private final AppointmentRepository repository;
+    private final AtencionEventos eventos;
 
-    public AppointmentService(AppointmentRepository repository) {
+    public AppointmentService(AppointmentRepository repository, AtencionEventos eventos) {
         this.repository = repository;
+        this.eventos = eventos;
     }
 
     public List<Appointment> search(AppointmentStatus status, Instant from, Instant to) {
@@ -63,6 +65,9 @@ public class AppointmentService {
     /**
      * Cambia el estado respetando la maquina de estados. Un salto invalido
      * (por ejemplo SOLICITADA -> EN_ATENCION) responde 409 Conflict.
+     *
+     * Al confirmar o cancelar se anuncia el hecho por {@link AtencionEventos};
+     * el trabajo asincrono lo recogen los consumidores de las colas.
      */
     @Transactional
     public Appointment changeStatus(Long id, AppointmentStatus target) {
@@ -78,13 +83,23 @@ public class AppointmentService {
         appointment.setStatus(target);
         appointment.setUpdatedAt(Instant.now());
 
-        // Al confirmar se asigna el box; aqui es donde EP2 descuenta el cupo
-        // en ms-vidasalud-catalog y publica el evento a RabbitMQ / Kafka.
+        // Al confirmar se asigna el box.
         if (target == AppointmentStatus.CONFIRMADA && appointment.getBoxCode() == null) {
             appointment.setBoxCode("BOX-" + String.format("%02d", (appointment.getServiceId() % 10) + 1));
         }
 
-        return repository.save(appointment);
+        Appointment guardada = repository.save(appointment);
+
+        // El anuncio va despues de guardar: solo se publica lo que ya es un
+        // hecho. Las tareas lentas (ticket, correo, descuento de cupo) las
+        // hacen los consumidores, no esta llamada HTTP.
+        if (target == AppointmentStatus.CONFIRMADA) {
+            eventos.confirmada(guardada);
+        } else if (target == AppointmentStatus.CANCELADA) {
+            eventos.cancelada(guardada);
+        }
+
+        return guardada;
     }
 
     @Transactional

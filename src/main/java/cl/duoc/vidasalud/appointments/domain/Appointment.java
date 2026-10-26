@@ -49,6 +49,22 @@ public class Appointment {
     @Column(name = "UPDATED_AT")
     private Instant updatedAt;
 
+    /**
+     * Codigo del ticket de admision. Lo escribe el consumidor de la cola
+     * q.admision.ticket, no el flujo HTTP: es la prueba visible de que el
+     * mensaje se proceso.
+     */
+    @Column(name = "TICKET_CODE", length = 30)
+    private String ticketCode;
+
+    public String getTicketCode() {
+        return ticketCode;
+    }
+
+    public void setTicketCode(String ticketCode) {
+        this.ticketCode = ticketCode;
+    }
+
     public Long getId() {
         return id;
     }

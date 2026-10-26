@@ -46,6 +46,52 @@ del token ya validado; nunca de un parámetro del cliente.
 > `ms-vidasalud-report` y `ms-vidasalud-audit`, consumiendo el tópico Kafka
 > `appointments.events`.
 
+## Mensajería
+
+Al confirmar o cancelar una atención, el servicio **publica un evento** y sigue; el
+trabajo lento lo hacen los consumidores. Si el broker está caído la atención ya quedó
+guardada y eso vale: se registra el fallo y la operación de negocio no se voltea.
+
+### Lo que publica
+
+| Hecho | Exchange | Tipo | Routing key |
+|---|---|---|---|
+| Atención confirmada | `vidasalud.atenciones.topic` | topic | `atencion.confirmada` |
+| Atención cancelada | `vidasalud.atenciones.topic` | topic | `atencion.cancelada` |
+| Descontar un cupo | `vidasalud.comandos.direct` | direct | `cupo.tomar` |
+
+Los dos primeros son **hechos**: quien los reciba decide qué hacer. El tercero es una
+**orden** con un destinatario único (`ms-vidasalud-catalog`), y por eso va por un
+exchange direct y no por el topic.
+
+El dominio no conoce RabbitMQ: `AppointmentService` depende de la interfaz
+`AtencionEventos`, y la implementación que publica vive en el paquete `messaging`.
+
+### Lo que consume
+
+`q.admision.ticket`, ligada a `atencion.#`: emite el ticket de admisión y lo guarda en la
+columna `TICKET_CODE`. Esa columna es la prueba visible de que el mensaje se procesó,
+porque no la escribe ninguna llamada HTTP.
+
+La emisión es **idempotente**: si la atención ya tiene ticket, no se genera otro.
+RabbitMQ garantiza "al menos una entrega", no "exactamente una", así que un mensaje
+reintentado puede llegar dos veces.
+
+### ACK y errores
+
+ACK manual, con tres salidas claras:
+
+| Situación | Decisión |
+|---|---|
+| Ticket emitido | `basicAck` |
+| Evento que no es confirmación | `basicAck` — no es un error, no hay ticket que emitir |
+| Atención inexistente o en mal estado | `basicNack` sin requeue → DLQ |
+| Fallo transitorio, 1ª vez | `basicNack` con requeue |
+| Fallo transitorio, 2ª vez | `basicNack` sin requeue → DLQ |
+
+Lo que cae en `q.admision.ticket.dlq` se consume y se registra con nivel `error`, para
+que quede rastro de la atención que quedó sin ticket.
+
 ## Persistencia
 
 Entidad `Appointment` → tabla `vs_appointment`, vía Spring Data JPA. Hibernate crea el

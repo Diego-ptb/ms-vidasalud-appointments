@@ -37,11 +37,15 @@ class AppointmentServiceTest {
     @Mock
     private AppointmentRepository repository;
 
+    /** La publicacion de eventos se simula: las pruebas no necesitan broker. */
+    @Mock
+    private AtencionEventos eventos;
+
     private AppointmentService service;
 
     @BeforeEach
     void setUp() {
-        service = new AppointmentService(repository);
+        service = new AppointmentService(repository, eventos);
     }
 
     private CreateRequest solicitudPara(Instant fecha) {
@@ -107,6 +111,32 @@ class AppointmentServiceTest {
                 .isEqualTo(HttpStatus.CONFLICT);
 
         verify(repository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("Al confirmar se anuncia el evento, despues de guardar")
+    void anunciaLaConfirmacion() {
+        when(repository.findById(1L)).thenReturn(Optional.of(atencionEn(AppointmentStatus.SOLICITADA)));
+        when(repository.save(any(Appointment.class))).thenAnswer(i -> i.getArgument(0));
+
+        Appointment confirmada = service.changeStatus(1L, AppointmentStatus.CONFIRMADA);
+
+        verify(eventos).confirmada(confirmada);
+        verify(eventos, never()).cancelada(any());
+    }
+
+    @Test
+    @DisplayName("Una transicion invalida no anuncia nada")
+    void noAnunciaSiLaTransicionFalla() {
+        // Si la regla de negocio rechaza el cambio, no puede haberse publicado
+        // un hecho que no ocurrio.
+        when(repository.findById(1L)).thenReturn(Optional.of(atencionEn(AppointmentStatus.SOLICITADA)));
+
+        assertThatThrownBy(() -> service.changeStatus(1L, AppointmentStatus.EN_ATENCION))
+                .isInstanceOf(ResponseStatusException.class);
+
+        verify(eventos, never()).confirmada(any());
+        verify(eventos, never()).cancelada(any());
     }
 
     @Test
