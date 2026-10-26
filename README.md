@@ -52,6 +52,12 @@ Al confirmar o cancelar una atención, el servicio **publica un evento** y sigue
 trabajo lento lo hacen los consumidores. Si el broker está caído la atención ya quedó
 guardada y eso vale: se registra el fallo y la operación de negocio no se voltea.
 
+El envio ocurre **despues del commit** de la transaccion, no dentro. Si se
+enviara dentro, un consumidor rapido podria leer la base antes de que el
+cambio sea visible y procesar datos viejos: es el problema de la escritura
+dual, y falla de forma intermitente segun quien gane la carrera. Si la
+transaccion termina en rollback, el mensaje sencillamente no se envia.
+
 ### Lo que publica
 
 | Hecho | Exchange | Tipo | Routing key |
