@@ -10,25 +10,6 @@ spring:
     name: ms-vidasalud-appointments
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
-  rabbitmq:
-    host: ${RABBIT_HOST:localhost}
-    port: ${RABBIT_PORT:5672}
-    username: ${RABBIT_USER:admin}
-    password: ${RABBIT_PASS:admin}
-    # Direcciones de los dos nodos del cluster. Si el primero no responde, el
-    # cliente intenta con el segundo: es lo que hace util tener dos nodos.
-    addresses: ${RABBIT_ADDRESSES:}
-    publisher-confirm-type: correlated
-    publisher-returns: true
-    listener:
-      simple:
-        # ACK manual: el consumidor decide explicitamente si confirma el
-        # mensaje, lo reintenta o lo manda a la DLQ. Ver los @RabbitListener.
-        acknowledge-mode: manual
-        prefetch: 10
-        # Un mensaje que no se puede ni deserializar no debe volver a la cola:
-        # se rechaza y el dead-letter-exchange lo lleva a la DLQ.
-        default-requeue-rejected: false
   jpa:
     open-in-view: false
     properties:
@@ -36,38 +17,9 @@ spring:
         format_sql: false
 
 vidasalud:
-  # ---------------------------------------------------------------------------
-  # Topologia de mensajeria, centralizada en un unico lugar.
-  #
-  # Ninguna clase de negocio escribe un nombre de cola o exchange: todas leen
-  # de MessagingProperties, que se enlaza a este bloque. Cambiar un nombre es
-  # editar este archivo, no buscar literales por el codigo.
-  # ---------------------------------------------------------------------------
-  messaging:
-    exchanges:
-      # direct: comandos dirigidos a un unico destinatario conocido.
-      direct: ${MQ_EXCHANGE_DIRECT:vidasalud.comandos.direct}
-      # topic: eventos de dominio; cada interesado se suscribe al patron que
-      # le sirve, sin que el productor sepa quien escucha.
-      topic: ${MQ_EXCHANGE_TOPIC:vidasalud.atenciones.topic}
-      # dead-letter exchange: destino de lo que ningun consumidor pudo procesar.
-      dlx: ${MQ_EXCHANGE_DLX:vidasalud.dlx}
-    queues:
-      notificaciones: ${MQ_QUEUE_NOTIFICACIONES:q.notificaciones.email}
-      ticket: ${MQ_QUEUE_TICKET:q.admision.ticket}
-      cupo: ${MQ_QUEUE_CUPO:q.catalogo.cupo}
-    # Cada cola de trabajo tiene su dead letter queue. El nombre se deriva del
-    # de la cola, para que no puedan quedar desalineados.
-    dlq:
-      notificaciones: ${vidasalud.messaging.queues.notificaciones}.dlq
-      ticket: ${vidasalud.messaging.queues.ticket}.dlq
-      cupo: ${vidasalud.messaging.queues.cupo}.dlq
-    routing:
-      atencion-confirmada: atencion.confirmada
-      atencion-cancelada: atencion.cancelada
-      # El ticket interesa cualquier evento de atencion, de ahi el comodin.
-      ticket-pattern: atencion.#
-      cupo-tomar: cupo.tomar
+  # Microservicio de mensajeria. Este servicio no habla AMQP: le anuncia los
+  # hechos por HTTP y es alla donde se convierten en mensajes de RabbitMQ.
+  mensajeria-url: ${MS_MQ_URL:http://localhost:8090}
 
   internal-key: ${INTERNAL_KEY:vidasalud-internal}
   internal-key-enabled: ${INTERNAL_KEY_ENABLED:true}

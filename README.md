@@ -48,55 +48,46 @@ del token ya validado; nunca de un parámetro del cliente.
 
 ## Mensajería
 
-Al confirmar o cancelar una atención, el servicio **publica un evento** y sigue; el
-trabajo lento lo hacen los consumidores. Si el broker está caído la atención ya quedó
-guardada y eso vale: se registra el fallo y la operación de negocio no se voltea.
+Este servicio **no habla AMQP**. Su `pom.xml` no incluye el starter de RabbitMQ y no
+contiene ninguna clase de mensajería: toda la mensajería vive en
+`ms-vidasalud-rabbit-admin`.
 
-El envio ocurre **despues del commit** de la transaccion, no dentro. Si se
-enviara dentro, un consumidor rapido podria leer la base antes de que el
-cambio sea visible y procesar datos viejos: es el problema de la escritura
-dual, y falla de forma intermitente segun quien gane la carrera. Si la
-transaccion termina en rollback, el mensaje sencillamente no se envia.
+Al confirmar o cancelar una atención, anuncia el hecho por HTTP:
 
-### Lo que publica
+```
+POST {mensajeria}/api/mq/events/atencion-confirmada
+```
 
-| Hecho | Exchange | Tipo | Routing key |
-|---|---|---|---|
-| Atención confirmada | `vidasalud.atenciones.topic` | topic | `atencion.confirmada` |
-| Atención cancelada | `vidasalud.atenciones.topic` | topic | `atencion.cancelada` |
-| Descontar un cupo | `vidasalud.comandos.direct` | direct | `cupo.tomar` |
+y es ese servicio quien lo convierte en mensajes de RabbitMQ. Aquí solo existe la
+interfaz `AtencionEventos`, que el dominio usa sin saber qué hay detrás, y su
+implementación `MensajeriaClient`.
 
-Los dos primeros son **hechos**: quien los reciba decide qué hacer. El tercero es una
-**orden** con un destinatario único (`ms-vidasalud-catalog`), y por eso va por un
-exchange direct y no por el topic.
+Dos decisiones que conviene conocer:
 
-El dominio no conoce RabbitMQ: `AppointmentService` depende de la interfaz
-`AtencionEventos`, y la implementación que publica vive en el paquete `messaging`.
+**El aviso se manda después del commit, no dentro de la transacción.** Si se mandara
+dentro, un consumidor rápido podría leer la base antes de que el cambio sea visible y
+procesar el estado viejo. Es el problema de la escritura dual, y falla de forma
+intermitente según quién gane la carrera. Si la transacción termina en rollback, el
+aviso no se manda: no se anuncia un hecho que no ocurrió.
 
-### Lo que consume
+**Un fallo al avisar no voltea la operación.** Si el servicio de mensajería está caído,
+la atención ya quedó confirmada en la base y eso vale; se registra el error y se sigue.
 
-`q.admision.ticket`, ligada a `atencion.#`: emite el ticket de admisión y lo guarda en la
-columna `TICKET_CODE`. Esa columna es la prueba visible de que el mensaje se procesó,
-porque no la escribe ninguna llamada HTTP.
+### Endpoint interno de ticket
 
-La emisión es **idempotente**: si la atención ya tiene ticket, no se genera otro.
-RabbitMQ garantiza "al menos una entrega", no "exactamente una", así que un mensaje
-reintentado puede llegar dos veces.
+| Método | Ruta | Quién llama |
+|---|---|---|
+| `PUT` | `/api/appointments/{id}/ticket` | ms-vidasalud-rabbit-admin |
 
-### ACK y errores
+Lo invoca el consumidor de `q.admision.ticket`. Emite el ticket y lo guarda en la columna
+`TICKET_CODE` — la prueba visible de que el mensaje se procesó, porque no la escribe
+ninguna petición de usuario.
 
-ACK manual, con tres salidas claras:
+La emisión es **idempotente**: si la atención ya tiene ticket, no se genera otro. Hace
+falta porque RabbitMQ garantiza "al menos una entrega", no "exactamente una".
 
-| Situación | Decisión |
-|---|---|
-| Ticket emitido | `basicAck` |
-| Evento que no es confirmación | `basicAck` — no es un error, no hay ticket que emitir |
-| Atención inexistente o en mal estado | `basicNack` sin requeue → DLQ |
-| Fallo transitorio, 1ª vez | `basicNack` con requeue |
-| Fallo transitorio, 2ª vez | `basicNack` sin requeue → DLQ |
-
-Lo que cae en `q.admision.ticket.dlq` se consume y se registra con nivel `error`, para
-que quede rastro de la atención que quedó sin ticket.
+Responde `409` si la atención no admite ticket y `404` si no existe. El consumidor
+interpreta cualquier 4xx como error definitivo y manda el mensaje a la DLQ.
 
 ## Persistencia
 

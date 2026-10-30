@@ -21,6 +21,7 @@ import org.springframework.web.server.ResponseStatusException;
 import cl.duoc.vidasalud.appointments.domain.Appointment;
 import cl.duoc.vidasalud.appointments.domain.AppointmentService;
 import cl.duoc.vidasalud.appointments.domain.AppointmentStatus;
+import cl.duoc.vidasalud.appointments.domain.TicketService;
 import cl.duoc.vidasalud.appointments.web.AppointmentDtos.CreateRequest;
 import cl.duoc.vidasalud.appointments.web.AppointmentDtos.Response;
 import cl.duoc.vidasalud.appointments.web.AppointmentDtos.StatusRequest;
@@ -32,9 +33,11 @@ import jakarta.validation.Valid;
 public class AppointmentController {
 
     private final AppointmentService service;
+    private final TicketService tickets;
 
-    public AppointmentController(AppointmentService service) {
+    public AppointmentController(AppointmentService service, TicketService tickets) {
         this.service = service;
+        this.tickets = tickets;
     }
 
     /**
@@ -115,6 +118,27 @@ public class AppointmentController {
         }
 
         return Response.from(service.changeStatus(id, request.status()));
+    }
+
+    /**
+     * Emite el ticket de admision de una atencion confirmada.
+     *
+     * Lo llama ms-vidasalud-rabbit-admin cuando consume un mensaje de
+     * q.admision.ticket. No lo expone el BFF: es una operacion interna que
+     * dispara la mensajeria, no un usuario.
+     *
+     * Responde 409 si la atencion no admite ticket y 404 si no existe. El
+     * consumidor interpreta cualquier 4xx como error definitivo y manda el
+     * mensaje a la DLQ, en vez de reintentarlo sin sentido.
+     */
+    @PutMapping("/{id}/ticket")
+    public Response emitirTicket(@PathVariable Long id) {
+        try {
+            tickets.emitir(id);
+            return Response.from(service.get(id));
+        } catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
+        }
     }
 
     @DeleteMapping("/{id}")
